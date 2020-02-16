@@ -1,0 +1,336 @@
+---
+output:
+  word_document: default
+  pdf_document: default
+---
+
+```{r global_options, include=FALSE}
+knitr::opts_chunk$set(warning=FALSE, message=FALSE)
+```
+
+
+
+## Quantum and Oscillator Strategy and other Strategies 
+## Summary and Implement
+
+
+## `r format(Sys.time(), "%Y-%m-%d")`
+
+
+
+# Moving Average Convergence/Divergence
+Here I used yahoo_Finance as my data source.
+When a user want to use this program, he can just change the date.
+Here, I use XOM for example.
+Load data:
+```{r}
+library("quantmod") 
+#reset the date and ticker
+start <-as.Date("2017-12-11")
+end <-as.Date("2018-12-07")
+ticker <- "XOM"
+#
+getSymbols(ticker,src = "yahoo", from = start,to = end)
+head(XOM)
+```
+
+Reset the parameter of MACD.
+In my example, the fast EMA is 12, slow EMA is 26, signal line is 9.
+```{r}
+#reset the parameter
+macd <- MACD(XOM[, "XOM.Close"], 12, 26, 9, maType = "EMA") 
+# draw the graph
+plot(macd[, 1], type = "l", col = "blue")
+lines(macd[, 2], type = "l", col = "red")
+#legend(201, 1.5, c("MACD", "Singal_line"), lty = c(1,1), col = c("blue", "red"), bty = "n")
+```
+
+
+Begin to build the strategy.
+Here, I use some trick to spot the cross point, where the trader should implement his trading.
+```{r}
+n <- sum(is.na(macd[,2]))
+Cp <- c()
+Cp <- rep(0, n)
+for(i in (n+1) : nrow(macd)){
+  if(macd[i, 1] > macd[i, 2]){
+    Cp[i] <- 1} 
+  else{
+      Cp[i] <- -1}
+}
+# xomsignal is the trasaction signal
+xomsignal <- rep(0,nrow(macd))
+for(i in (n+1) : nrow(macd)){
+  if((Cp[i] - Cp[i - 1]) == 2) {
+    xomsignal[i] <- 'buy'}
+  else if((Cp[i] - Cp[i - 1]) == -2){
+    xomsignal[i] <- 'sell'}
+}
+XOM2<- cbind(as.data.frame(XOM), xomsignal)
+signals <- subset(XOM2,xomsignal!=0)
+signals
+```
+
+Set a the initial capital and transaction fee.
+For example:
+initial capital = 10000
+transaction fee = 5 (including sell and buy)
+
+
+```{r}
+# set the initial capital and transaction fee
+cap<-10000
+fee <- 5
+# calculate the odd or even
+transaction.times <- nrow(signals) %/% 2 * 2
+if(nrow(signals)%%2 == 0){
+  parity <- "even"
+}else if(nrow(signals)%%2 == 1){
+  parity <- "odd"
+}
+# calculate the number of shares 
+shares<-rep(0,transaction.times)
+for(i in 1:(transaction.times/2)) {
+  shares[2*i-1]=cap/(signals$XOM.Close[2*i-1])
+  }
+shares<-floor(shares)
+# calculate the profits 
+if (parity == "odd"){
+  PL<-cbind(signals[-nrow(signals),],shares)
+}else{
+  PL<-cbind(signals,shares)
+}
+
+profit<-rep(0,transaction.times)
+for(i in 1:(transaction.times/2)){
+  if(PL$xomsignal[1] == "buy"){
+  profit[2*i] <- PL$shares[2*i-1]*(PL$XOM.Close[2*i]-PL$XOM.Close[2*i-1])-fee }
+  if(PL$xomsignal[1] == "sell"){
+  profit[2*i] <- PL$shares[2*i-1]*(PL$XOM.Close[2*i]-PL$XOM.Close[2*i-1])-fee }
+  }
+final<-cbind(PL,profit)
+final[,5:9]
+```
+
+Use the data to calculate return rate, sharpe ratio and so on.
+For example:
+risk-free rate is 0.511.
+```{r}
+# set risk-free rate
+rf <- 0.511
+#
+mean(final$profit) 
+var(final$profit) 
+sd(final$profit) 
+rf<-5.11/100
+ri<-rep(0,transaction.times) 
+for(i in 1:(transaction.times/2)){
+  ri[2*i]<-log(final$XOM.Close[2*i]/final$XOM.Close[2*i-1]) }
+ri<-ri[ri!=0]
+sharpe<-(mean(ri)-rf)/sd(ri-rf) 
+sharpe
+```
+
+# RSI- Relative Strength Index
+We still use the data of XOM.
+1.set the time period, N =14
+2.set overbought and oversold market parameter, up = 80, down=20
+
+```{r}
+# set parameter
+N <- 14
+up <- 80
+down <- 20
+# EMA
+rsi<-RSI(XOM$XOM.Close,N,maType = EMA)
+ts.plot(rsi,ylim=c(0,100),main="RSI time series under EMA",ylab="RSI") 
+overbought<-c(rep(up,length(rsi)))
+oversold<-c(rep(down,length(rsi)))
+lines(overbought,col="red")
+lines(oversold,col="blue")
+```
+
+Simulate the trading process. The trick to find the point is similar to MACD.
+```{r}
+state1<-c(rep(0,length(rsi)))
+n <- sum(is.na(rsi))
+for(i in (n+1):length(rsi)){
+  if(rsi[i] < 20){state1[i]<-1}
+  if(rsi[i] > 80){state1[i]<--1}
+} 
+trade1<-c(rep(0,length(rsi))) 
+for(i in 15:length(rsi)){
+  if(((state1[i]-state1[i-1])==1)&(state1[i-1]==0)) {
+    trade1[i]<-'buy'}
+  if(((state1[i]-state1[i-1])==-1)&(state1[i-1]==0)){
+    trade1[i]<-'sell' }
+  }
+trade_set1<-cbind(as.data.frame(XOM),trade1) 
+trade_signal1<-subset(trade_set1,trade1!=0)
+trade_signal1
+```
+
+SMA is similar.
+```{r}
+rsi<-RSI(XOM$XOM.Close,N,maType = SMA)
+ts.plot(rsi,ylim=c(0,100),main="RSI time series under SMA",ylab="RSI") 
+overbought<-c(rep(up,length(rsi)))
+oversold<-c(rep(down,length(rsi)))
+lines(overbought,col="red")
+lines(oversold,col="blue")
+
+state1<-c(rep(0,length(rsi)))
+n <- sum(is.na(rsi))
+for(i in (n+1):length(rsi)){
+  if(rsi[i] < 20){state1[i]<-1}
+  if(rsi[i] > 80){state1[i]<--1}
+} 
+trade1<-c(rep(0,length(rsi))) 
+for(i in 15:length(rsi)){
+  if(((state1[i]-state1[i-1])==1)&(state1[i-1]==0)) {
+    trade1[i]<-'buy'}
+  if(((state1[i]-state1[i-1])==-1)&(state1[i-1]==0)){
+    trade1[i]<-'sell' }
+  }
+trade_set1<-cbind(as.data.frame(XOM),trade1) 
+trade_signal1<-subset(trade_set1,trade1!=0)
+trade_signal1
+
+```
+
+# Pair trading strategy
+Here we use XOM and CVS to implement pair trading strategy.
+ticker1 = XOM
+ticker2 = CVS 
+```{r}
+library(tseries)
+if(FALSE){
+# set the tickers and time period.
+ start <- as.Date("2015-11-30")
+ end <- as.Date("2017-11-30")
+ ticker1 = "XOM"
+ticker2 = "CVS"
+getSymbols(ticker1,src = "yahoo", from = start,to = end)
+getSymbols(ticker2,src = "yahoo", from = start,to = end)
+# get the graphs
+close1 <- as.matrix(XOM$XOM.Close)
+close2 <- as.matrix(CVS$CVS.Close)
+logr1 <- diff(log(close1))
+logr2 <- diff(log(close2))
+}
+
+setwd("/Users/yifuhe/Desktop")
+CVS <-read.csv("CVX.csv") 
+XOM <-read.csv("XOM.csv") 
+x <-diff(log(XOM$Close))
+y <-diff(log(CVS$Close))
+fit2<-lm(y~x)
+summary(fit2)
+z<-c(NA)
+```
+
+build the strategy
+```{r}
+# Estimate the co-integrating relation
+if(FALSE){
+plot(x,y,main = "scatter plot of the log returns")
+fit <- lm(logr2~logr1)
+summary(fit)
+intercept <- coef(fit)[1]
+slope <- coef(fit)[2]
+abline(fit,cex = 1.3,pch = 16, col = "red" )
+res<-fit$residuals
+plot(fit,which=1)
+# adf test
+adf.test(res)
+}
+
+
+#png(file = "linearregression of XOM and CVX.png")
+plot(x,y,col = "blue",main = "scatter plot",xlab="XOM",ylab="CVX")
+abline(fit2,cex = 1.3,pch = 16,col = "red")
+
+z <- fit2$residuals
+stdz<-sd(z)
+delta <-2*stdz
+plot(z,ylab="residential",xlab="time",main="Plot of Residentials")
+abline(h=-delta,col="blue")
+abline(h=delta,col="red")
+# adf test
+adf.test(z)
+```
+if P-value is less than 0.01, we can rejected the null Hypothesis.
+For example: 
+use delta = 2 * std(z_t)
+accuracy = 0.001
+Portfolio: long --- logr2
+          short --- logr1
+```{r}
+if(FALSE){
+# set delta
+delta<-2*sd(res)
+accuracy = 0.001
+##
+date<-as.Date(row.names(as.data.frame(XOM))[-1])
+error <- logr2-slope*logr1 - intercept
+data <- data.frame(date,logr1,logr2,error)
+data$signal=c(rep("none",nrow(data)))
+data[abs((data$error+delta))<=accuracy,]$signal<-"buy"
+data[abs((data$error-delta))<=accuracy,]$signal<-"sell"
+data$order <- seq(nrow(data))
+trade_signal <- subset(data, data$signal != "none")
+trade_signal}
+##
+
+
+slope <- coef(fit2)[2]
+intercept <- coef(fit2)[1]
+date<-as.Date(XOM$Date[-1])
+yt_axt<-y-slope*x
+data<-data.frame(date,x,y,yt_axt)
+data$signal = rep("none",nrow(data))
+data[abs((data$yt_axt+delta-intercept))<=0.001,]$signal<-"buy" 
+data[abs((data$yt_axt-delta-intercept))<=0.001,]$signal<-"sell"
+data$order = seq(nrow(data))
+trade<-subset(data,data$signal!="none")
+trade
+```
+
+Calculate P/L
+Suppose that the transaction size is 1 contract.
+```{r}
+if(FALSE){
+close1 <- XOM$Close[(trade_signal$order)+1]
+close2 <- CVS$Close[(trade_signal$order)+1]
+signal <- trade_signal$signal
+signal[signal == "sell"] = 1
+signal[signal == "buy"] = -1
+signal <- as.numeric(signal)
+signal1 <- signal*slope
+signal1[length(signal1)] = -2*slope
+signal2 <- signal*(-1)
+signal2[length(signal2)] = 2
+pnl1 <- signal1 %*% close1
+pnl2 <- signal2 %*% close2
+pnl <- pnl1 +pnl2
+pnl}
+
+# need to figure out why get different outcome when use same data from different source
+close1 <- XOM$Close[(trade$order)+1]
+close2 <- CVS$Close[(trade$order)+1]
+signal <- trade$signal
+signal[signal == "sell"] = 1
+signal[signal == "buy"] = -1
+signal <- as.numeric(signal)
+signal1 <- signal*slope
+signal1[length(signal1)] = -2*slope
+signal2 <- signal*(-1)
+signal2[length(signal2)] = 2
+pnl1 <- signal1 %*% close1
+pnl2 <- signal2 %*% close2
+pnl <- pnl1 +pnl2
+pnl
+```
+
+
+

@@ -1,0 +1,21 @@
+570 18 fall key point
+Ch2
+1. Difference between broker and dealer
+2. Different kind of trading instruments: bitcoin
+3. He tested a problem about SEC and CFTC in chapter 1 governmental regulatory agencies
+
+Ch3
+4.difference market structures
+5. Different orders (examples in slices)
+
+Ch5
+6.understand Random walk
+7. What is liquidity
+
+Ch5
+8. What is volatility  / transitory volatility
+9. Different kind of risk
+10. Roll model (important)
+
+Ch6
+11. Sequential trade model(important) 
